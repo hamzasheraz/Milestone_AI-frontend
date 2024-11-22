@@ -9,6 +9,10 @@ import { useToast } from "@/hooks/use-toast"
 import axios from 'axios'
 import Image from 'next/image'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Doughnut } from 'react-chartjs-2'
+import { Chart as ChartJS, ArcElement, Tooltip, Legend } from 'chart.js'
+
+ChartJS.register(ArcElement, Tooltip, Legend)
 
 export default function Home() {
   const [file, setFile] = useState(null)
@@ -19,6 +23,7 @@ export default function Home() {
   const [summary, setSummary] = useState("")
   const [images, setImages] = useState([])
   const [emotion, setEmotion] = useState("Calmness")
+  const [relevanceData, setRelevanceData] = useState(null)
   const { toast } = useToast()
   const emotionLabels = [
     'Admiration', 'Adoration', 'Aesthetic Appreciation', 'Amusement', 'Anger',
@@ -92,7 +97,9 @@ export default function Home() {
       if (response.status === 200) {
         const data = response.data
         if (data.images && data.images.length > 0) {
-          setImages(data.images)
+          const filteredImages = data.images.filter(image => !image.includes('unknown'));
+          setImages(filteredImages);
+          console.log(filteredImages);
         }
 
         const fullSummary = data.chunk_summaries.map((chunk) => chunk.summary).join(' ')
@@ -155,6 +162,79 @@ export default function Home() {
     return text.replace(/\*\*(.*?)\*\*/g, (match, p1) => {
       return ` <strong>${p1}</strong> `
     }).replace(/\s+/g, ' ').trim()
+  }
+
+  const handleImageClick = async (speakerId) => {
+    try {
+      const response = await axios.post(
+        "http://localhost:8000/get_relevance/",
+        { speaker_id: speakerId },
+        {
+          headers: { 'Content-Type': 'application/json' }
+        }
+      );
+      if (response.status === 200) {
+        console.log("Relevance data received:", response.data);
+        setRelevanceData(response.data.chart_data);
+      } else {
+        console.error(`HTTP error: ${response.status}`);
+        toast({
+          title: "Error",
+          description: "Failed to fetch relevance data.",
+          variant: "destructive",
+          duration: 3000,
+        });
+      }
+    } catch (error) {
+      console.error("Error:", error);
+      toast({
+        title: "Error",
+        description: "Failed to fetch relevance data.",
+        variant: "destructive",
+        duration: 3000,
+      });
+    }
+  }
+
+  const renderDonutChart = () => {
+    console.log(relevanceData);
+    if (!relevanceData || (relevanceData.Relevant === 0 && relevanceData['Not Relevant'] === 0)) return null;
+
+    const data = {
+      labels: ['Relevant', 'Not Relevant'],
+      datasets: [
+        {
+          data: [relevanceData.Relevant, relevanceData['Not Relevant']],
+          backgroundColor: ['#22c55e', '#ef4444'],
+          hoverBackgroundColor: ['#16a34a', '#dc2626'],
+          borderColor: ['#ffffff', '#ffffff'],
+          borderWidth: 2,
+        },
+      ],
+    };
+
+    const options = {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          position: 'bottom',
+          labels: {
+            color: '#4b5563',
+            font: {
+              size: 14,
+              weight: 'bold',
+            },
+          },
+        },
+      },
+    };
+
+    return (
+      <div className="w-64 h-64 mx-auto mt-4">
+        <Doughnut data={data} options={options} />
+      </div>
+    );
   }
 
   return (
@@ -293,17 +373,36 @@ export default function Home() {
                       <motion.div
                         initial={{ opacity: 0, scale: 0.8 }}
                         animate={{ opacity: 1, scale: 1 }}
-                        className="relative group"
+                        className="relative group cursor-pointer"
+                        onClick={() => handleImageClick(index)}
                       >
                         <img
                           src={`http://localhost:8000/${image}`}
                           alt={`Generated visual for Speaker ${index + 1}`}
                           className="w-full h-auto max-w-full object-contain rounded-lg shadow-lg"
                         />
+                        <div className="absolute inset-0 bg-black bg-opacity-50 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center rounded-lg">
+                          <p className="text-white text-lg font-semibold">Click to view relevance</p>
+                        </div>
                       </motion.div>
                     </motion.div>
                   ))}
                 </AnimatePresence>
+
+                {relevanceData && (
+                  <div className="mt-6 p-4 bg-gray-100 dark:bg-gray-800 rounded-lg">
+                    <h4 className="text-lg font-semibold text-purple-800 dark:text-purple-300 mb-4">
+                      Relevance Chart
+                    </h4>
+                    {renderDonutChart()}
+                    <div className="mt-4 p-2 bg-white dark:bg-gray-700 rounded border border-gray-200 dark:border-gray-600">
+                      <h5 className="text-sm font-semibold mb-2">Raw Data:</h5>
+                      <pre className="text-xs overflow-x-auto">
+                        {JSON.stringify(relevanceData, null, 2)}
+                      </pre>
+                    </div>
+                  </div>
+                )}
               </motion.div>
             )}
           </AnimatePresence>

@@ -5,18 +5,37 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Progress } from "@/components/ui/progress"
 import { Loader2, Upload, CheckCircle, FileAudio, Wand2 } from 'lucide-react';
-import { useToast } from "@/components/ui/use-toast"
+import { useToast } from "@/hooks/use-toast"
 import axios from 'axios'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Doughnut } from 'react-chartjs-2'
+import { Chart as ChartJS, ArcElement, Tooltip, Legend } from 'chart.js'
 
-export function EnhancedAudioUploadDashboardComponent() {
+ChartJS.register(ArcElement, Tooltip, Legend)
+
+export function EnhancedAudioUploadDashboardJsx() {
   const [file, setFile] = useState(null)
   const [uploading, setUploading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
   const [uploadComplete, setUploadComplete] = useState(false)
   const [generating, setGenerating] = useState(false)
   const [summary, setSummary] = useState("")
-  const [images, setImages] = useState([]); // Update 2: Updated state initialization
+  const [images, setImages] = useState([])
+  const [emotion, setEmotion] = useState("Calmness")
+  const [relevanceData, setRelevanceData] = useState(null)
   const { toast } = useToast()
+  const emotionLabels = [
+    'Admiration', 'Adoration', 'Aesthetic Appreciation', 'Amusement', 'Anger',
+    'Anxiety', 'Awe', 'Awkwardness', 'Boredom', 'Calmness',
+    'Concentration', 'Confusion', 'Contemplation', 'Contempt', 'Contentment',
+    'Craving', 'Desire', 'Determination', 'Disappointment', 'Disgust',
+    'Distress', 'Doubt', 'Ecstasy', 'Embarrassment', 'Empathic Pain',
+    'Entrancement', 'Envy', 'Excitement', 'Fear', 'Guilt',
+    'Horror', 'Interest', 'Joy', 'Love', 'Nostalgia',
+    'Pain', 'Pride', 'Realization', 'Relief', 'Romance',
+    'Sadness', 'Satisfaction', 'Shame', 'Surprise (negative)', 'Surprise (positive)',
+    'Sympathy', 'Tiredness', 'Triumph'
+  ];
 
   const handleFileChange = (event) => {
     const selectedFile = event.target.files?.[0]
@@ -65,6 +84,7 @@ export function EnhancedAudioUploadDashboardComponent() {
 
     const formData = new FormData()
     formData.append("audio", file)
+    formData.append("emotion", emotion)
 
     try {
       const response = await axios.post("http://localhost:8000/create_summary/", formData, {
@@ -75,6 +95,10 @@ export function EnhancedAudioUploadDashboardComponent() {
 
       if (response.status === 200) {
         const data = response.data
+        if (data.images && data.images.length > 0) {
+          setImages(data.images)
+        }
+
         const fullSummary = data.chunk_summaries.map((chunk) => chunk.summary).join(' ')
         const boldSummary = convertToBold(fullSummary)
 
@@ -82,11 +106,6 @@ export function EnhancedAudioUploadDashboardComponent() {
         for (let i = 0; i <= boldSummary.length; i++) {
           await new Promise(resolve => setTimeout(resolve, 30))
           setSummary(boldSummary.slice(0, i))
-        }
-
-        // Update 3: Updated image setting logic
-        if (data.images && data.images.length > 0) {
-          setImages([data.images[0]]);
         }
       } else {
         console.error(`HTTP error: ${response.status}`)
@@ -100,10 +119,105 @@ export function EnhancedAudioUploadDashboardComponent() {
     setGenerating(false)
   }
 
+  const handleEmotionChange = async (newEmotion) => {
+    setEmotion(newEmotion)
+    setGenerating(true)
+
+    try {
+      const response = await axios.post("http://localhost:8000/update_emotion/", {
+        emotion: newEmotion,
+      })
+
+      if (response.status === 200) {
+        const data = response.data
+        if (data.images && data.images.length > 0) {
+          setImages(data.images)
+        }
+      } else {
+        console.error(`HTTP error: ${response.status}`)
+        toast({
+          title: "Error",
+          description: "Failed to update images.",
+          variant: "destructive",
+          duration: 3000,
+        })
+      }
+    } catch (error) {
+      console.error("Error:", error)
+      toast({
+        title: "Error",
+        description: "Failed to update images.",
+        variant: "destructive",
+        duration: 3000,
+      })
+    }
+
+    setGenerating(false)
+  }
+
   const convertToBold = (text) => {
     return text.replace(/\*\*(.*?)\*\*/g, (match, p1) => {
       return ` <strong>${p1}</strong> `
     }).replace(/\s+/g, ' ').trim();
+  }
+
+  const handleImageClick = async (speakerId) => {
+    try {
+      const response = await axios.post("http://localhost:8000/get_relevance/", {
+        speaker_id: speakerId,
+      })
+
+      if (response.status === 200) {
+        setRelevanceData(response.data)
+      } else {
+        console.error(`HTTP error: ${response.status}`)
+        toast({
+          title: "Error",
+          description: "Failed to fetch relevance data.",
+          variant: "destructive",
+          duration: 3000,
+        })
+      }
+    } catch (error) {
+      console.error("Error:", error)
+      toast({
+        title: "Error",
+        description: "Failed to fetch relevance data.",
+        variant: "destructive",
+        duration: 3000,
+      })
+    }
+  }
+
+  const renderDonutChart = () => {
+    if (!relevanceData) return null
+
+    const data = {
+      labels: ['Relevant', 'Not Relevant'],
+      datasets: [
+        {
+          data: [relevanceData.Relevant, relevanceData['Not Relevant']],
+          backgroundColor: ['#4ade80', '#f87171'],
+          hoverBackgroundColor: ['#22c55e', '#ef4444'],
+        },
+      ],
+    }
+
+    const options = {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          position: 'bottom',
+        },
+      },
+    }
+
+    return (
+      (<div className="w-64 h-64 mx-auto mt-4">
+        <Doughnut data={data} options={options} />
+      </div>)
+    );
   }
 
   return (
@@ -112,7 +226,7 @@ export function EnhancedAudioUploadDashboardComponent() {
       <Card className="w-full max-w-4xl bg-white dark:bg-gray-800 shadow-2xl">
         <CardHeader
           className="text-center bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-t-lg">
-          <CardTitle className="text-3xl font-bold">Audio Insights Dashboard</CardTitle>
+          <CardTitle className="text-3xl font-bold">Summary Insights Dashboard</CardTitle>
           <CardDescription className="text-purple-100">Transform your meetings into actionable summaries and visuals</CardDescription>
         </CardHeader>
         <CardContent className="space-y-6 p-6">
@@ -134,7 +248,7 @@ export function EnhancedAudioUploadDashboardComponent() {
                 accept="audio/*" />
             </label>
           </div>
-          
+
           <AnimatePresence>
             {file && (
               <motion.div
@@ -217,31 +331,55 @@ export function EnhancedAudioUploadDashboardComponent() {
                 <div
                   className="text-gray-700 dark:text-gray-300 leading-relaxed mb-6"
                   dangerouslySetInnerHTML={{ __html: summary }} />
-                
-                {/* Update 1: Replaced AnimatePresence block for images */}
+
+                <div className="mb-4">
+                  <h4
+                    className="text-lg font-semibold text-purple-800 dark:text-purple-300 mb-2">Emotion</h4>
+                  <Select value={emotion} onValueChange={handleEmotionChange}>
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Select emotion" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {emotionLabels.map((emotion, index) => (
+                        <SelectItem key={index} value={emotion}>
+                          {emotion}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
                 <AnimatePresence>
-                  {images.length > 0 && (
+                  {images.length > 0 && images.map((image, index) => (
                     <motion.div
+                      key={index}
                       initial={{ opacity: 0, y: 20 }}
                       animate={{ opacity: 1, y: 0 }}
                       exit={{ opacity: 0, y: -20 }}
                       className="mt-6">
                       <h4
                         className="text-lg font-semibold text-purple-800 dark:text-purple-300 mb-4">
-                        Generated Visual
+                        {`Speaker ${index + 1}`}
                       </h4>
                       <motion.div
                         initial={{ opacity: 0, scale: 0.8 }}
                         animate={{ opacity: 1, scale: 1 }}
-                        className="relative group">
+                        className="relative group cursor-pointer"
+                        onClick={() => handleImageClick(index + 1)}>
                         <img
-                          src={`http://localhost:8000/static/plots/calmness_speaker_spk_0.png`}
-                          alt="Generated visual"
+                          src={`http://localhost:8000/${image}`}
+                          alt={`Generated visual for Speaker ${index + 1}`}
                           className="w-full h-auto max-w-full object-contain rounded-lg shadow-lg" />
+                        <div
+                          className="absolute inset-0 bg-black bg-opacity-50 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center rounded-lg">
+                          <p className="text-white text-lg font-semibold">Click to view relevance</p>
+                        </div>
                       </motion.div>
                     </motion.div>
-                  )}
+                  ))}
                 </AnimatePresence>
+
+                {renderDonutChart()}
               </motion.div>
             )}
           </AnimatePresence>
