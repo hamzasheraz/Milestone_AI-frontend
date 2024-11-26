@@ -24,6 +24,7 @@ export default function Home() {
   const [images, setImages] = useState([])
   const [emotion, setEmotion] = useState("Calmness")
   const [relevanceData, setRelevanceData] = useState(null)
+  const [currentSpeakerId, setCurrentSpeakerId] = useState(null)
   const { toast } = useToast()
   const emotionLabels = [
     'Admiration', 'Adoration', 'Aesthetic Appreciation', 'Amusement', 'Anger',
@@ -56,6 +57,28 @@ export default function Home() {
         duration: 3000,
       })
     }
+  }
+
+  const handleApiError = (error, customMessage) => {
+    console.error("API Error:", error)
+    let errorMessage = customMessage || "An unexpected error occurred."
+    if (error.response) {
+      // The request was made and the server responded with a status code
+      // that falls out of the range of 2xx
+      errorMessage = error.response.data.detail || error.response.data.message || errorMessage
+    } else if (error.request) {
+      // The request was made but no response was received
+      errorMessage = "No response received from the server. Please try again later."
+    } else {
+      // Something happened in setting up the request that triggered an Error
+      errorMessage = error.message || errorMessage
+    }
+    toast({
+      title: "Error",
+      description: errorMessage,
+      variant: "destructive",
+      duration: 5000,
+    })
   }
 
   const handleUpload = async () => {
@@ -93,13 +116,11 @@ export default function Home() {
           'Content-Type': 'multipart/form-data',
         },
       })
-
+      console.log("Summary data received:", response)
       if (response.status === 200) {
         const data = response.data
         if (data.images && data.images.length > 0) {
-          const filteredImages = data.images.filter(image => !image.includes('unknown'));
-          setImages(filteredImages);
-          console.log(filteredImages);
+          setImages(data.images)
         }
 
         const fullSummary = data.chunk_summaries.map((chunk) => chunk.summary).join(' ')
@@ -111,12 +132,11 @@ export default function Home() {
           setSummary(boldSummary.slice(0, i))
         }
       } else {
-        console.error(`HTTP error: ${response.status}`)
-        setSummary("Error generating summary")
+        console.log('summary ke error me')
+        handleApiError(new Error(`HTTP error: ${response.status}`), "Error generating summary")
       }
     } catch (error) {
-      console.error("Error:", error)
-      setSummary("Error generating summary")
+      handleApiError(error, "Error generating summary")
     }
 
     setGenerating(false)
@@ -137,31 +157,27 @@ export default function Home() {
           setImages(data.images)
         }
       } else {
-        console.error(`HTTP error: ${response.status}`)
-        toast({
-          title: "Error",
-          description: "Failed to update images.",
-          variant: "destructive",
-          duration: 3000,
-        })
+        handleApiError(new Error(`HTTP error: ${response.status}`), "Failed to update images")
       }
     } catch (error) {
-      console.error("Error:", error)
-      toast({
-        title: "Error",
-        description: "Failed to update images.",
-        variant: "destructive",
-        duration: 3000,
-      })
+      handleApiError(error, "Failed to update images")
     }
 
     setGenerating(false)
   }
 
   const convertToBold = (text) => {
-    return text.replace(/\*\*(.*?)\*\*/g, (match, p1) => {
-      return ` <strong>${p1}</strong> `
-    }).replace(/\s+/g, ' ').trim()
+    return text
+      // Match text between single asterisks and replace with <span> tag with green background
+      .replace(/\*(.*?)\*/g, (match, p1) => {
+        return `<span style="background-color: green; color: white; padding: 0 4px; border-radius: 4px;">${p1}</span>`;
+      })
+      // Match text between brackets and replace with <span> tag with red background
+      .replace(/\[(.*?)\]/g, (match, p1) => {
+        return `<span style="background-color: red; color: white; padding: 0 4px; border-radius: 4px;">${p1}</span>`;
+      })
+      // Remove extra spaces and trim the string
+      .replace(/\s+/g, ' ').trim();
   }
 
   const handleImageClick = async (speakerId) => {
@@ -175,39 +191,46 @@ export default function Home() {
       );
       if (response.status === 200) {
         console.log("Relevance data received:", response.data);
-        setRelevanceData(response.data.chart_data);
+        setRelevanceData(response.data.label_percentages);
+        setCurrentSpeakerId(speakerId);
       } else {
-        console.error(`HTTP error: ${response.status}`);
-        toast({
-          title: "Error",
-          description: "Failed to fetch relevance data.",
-          variant: "destructive",
-          duration: 3000,
-        });
+        handleApiError(new Error(`HTTP error: ${response.status}`), "Failed to fetch relevance data")
       }
     } catch (error) {
-      console.error("Error:", error);
-      toast({
-        title: "Error",
-        description: "Failed to fetch relevance data.",
-        variant: "destructive",
-        duration: 3000,
-      });
+      handleApiError(error, "Failed to fetch relevance data")
     }
   }
 
   const renderDonutChart = () => {
-    console.log(relevanceData);
-    if (!relevanceData || (relevanceData.Relevant === 0 && relevanceData['Not Relevant'] === 0)) return null;
+    console.log("Rendering donut chart with data:", relevanceData);
+    if (!relevanceData) {
+      console.log("No relevance data available");
+      return null;
+    }
 
-    const data = {
-      labels: ['Relevant', 'Not Relevant'],
+    const labels = Object.keys(relevanceData);
+    const data = Object.values(relevanceData);
+
+    console.log("Chart labels:", labels);
+    console.log("Chart data:", data);
+
+    if (labels.length === 0 || data.length === 0) {
+      console.log("No valid data for chart");
+      return null;
+    }
+
+    const chartData = {
+      labels: labels,
       datasets: [
         {
-          data: [relevanceData.Relevant, relevanceData['Not Relevant']],
-          backgroundColor: ['#22c55e', '#ef4444'],
-          hoverBackgroundColor: ['#16a34a', '#dc2626'],
-          borderColor: ['#ffffff', '#ffffff'],
+          data: data,
+          backgroundColor: [
+            '#22c55e', '#3b82f6', '#ef4444', '#f59e0b', '#8b5cf6'
+          ],
+          hoverBackgroundColor: [
+            '#16a34a', '#2563eb', '#dc2626', '#d97706', '#7c3aed'
+          ],
+          borderColor: ['#ffffff'],
           borderWidth: 2,
         },
       ],
@@ -222,21 +245,39 @@ export default function Home() {
           labels: {
             color: '#4b5563',
             font: {
-              size: 14,
+              size: 12,
               weight: 'bold',
             },
           },
         },
+        tooltip: {
+          callbacks: {
+            label: function (context) {
+              let label = context.label || '';
+              if (label) {
+                label += ': ';
+              }
+              if (context.parsed !== null) {
+                label += context.parsed.toFixed(2) + '%';
+              }
+              return label;
+            }
+          }
+        }
       },
     };
 
     return (
-      <div className="w-64 h-64 mx-auto mt-4">
-        <Doughnut data={data} options={options} />
+      <div className="w-full mx-auto mt-4">
+        <h5 className="text-lg font-semibold text-purple-800 dark:text-purple-300 mb-2 text-center">
+          Speaker {currentSpeakerId}
+        </h5>
+        <div className="h-64">
+          <Doughnut data={chartData} options={options} />
+        </div>
       </div>
     );
   }
-
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-50 to-indigo-100 dark:from-gray-900 dark:to-indigo-900 flex items-center justify-center p-4">
       <Card className="w-full max-w-4xl bg-white dark:bg-gray-800 shadow-2xl">
@@ -368,7 +409,7 @@ export default function Home() {
                       className="mt-6"
                     >
                       <h4 className="text-lg font-semibold text-purple-800 dark:text-purple-300 mb-4">
-                        {`Speaker ${index + 1}`}
+                        {`Speaker ${index}`}
                       </h4>
                       <motion.div
                         initial={{ opacity: 0, scale: 0.8 }}
@@ -392,9 +433,9 @@ export default function Home() {
                 {relevanceData && (
                   <div className="mt-6 p-4 bg-gray-100 dark:bg-gray-800 rounded-lg">
                     <h4 className="text-lg font-semibold text-purple-800 dark:text-purple-300 mb-4">
-                      Relevance Chart
+                      Label Percentages
                     </h4>
-                    {renderDonutChart()}
+                    {renderDonutChart() || <p>No chart data available</p>}
                     <div className="mt-4 p-2 bg-white dark:bg-gray-700 rounded border border-gray-200 dark:border-gray-600">
                       <h5 className="text-sm font-semibold mb-2">Raw Data:</h5>
                       <pre className="text-xs overflow-x-auto">
